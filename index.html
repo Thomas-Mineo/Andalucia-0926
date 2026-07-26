@@ -568,7 +568,7 @@
   Board.prototype.userItems=function(){
     if(this.shared){
       var o=this.dbItems||{};
-      return Object.keys(o).map(function(k){return {id:k,url:o[k]&&o[k].url,ts:o[k]&&o[k].ts};})
+      return Object.keys(o).map(function(k){var v=o[k]||{};return {id:k,url:v.url,ts:v.ts,title:v.title,image:v.image};})
         .filter(function(i){return i.url;})
         .sort(function(a,b){return (a.ts||0)-(b.ts||0);});
     }
@@ -620,6 +620,7 @@
       var meta=classify(it.url);
       var isSeed=/^seed-/.test(it.id);
       var score=votes[it.id]||0, my=mine[it.id]||0;
+      var safeUrl=/^https?:\/\//i.test(it.url)?it.url:'';
       var card=document.createElement('div'); card.className='lcard'+(it.id===self.flashId?' new':'');
       card.innerHTML=
         '<div class="lthumb" style="background:'+meta.color+'14">'+
@@ -627,48 +628,72 @@
           '<span class="glyph" data-glyph>'+meta.glyph+'</span>'+
         '</div>'+
         '<div class="lbody">'+
-          '<p class="ltitle" data-title>'+meta.platform+' link</p>'+
-          '<p class="lsub">'+hostOf(it.url)+'</p>'+
+          '<p class="ltitle" data-title></p>'+
+          '<p class="lsub" data-sub></p>'+
           '<div class="lactions">'+
             '<span class="vote">'+
               '<button data-up class="'+(my===1?'on':'')+'" title="Vote up">▲</button>'+
               '<span class="score">'+score+'</span>'+
               '<button data-down class="'+(my===-1?'on':'')+'" title="Vote down">▼</button>'+
             '</span>'+
-            '<a class="open-link" href="'+it.url+'" target="_blank" rel="noopener">Open ↗</a>'+
+            '<a class="open-link" target="_blank" rel="noopener">Open ↗</a>'+
             (isSeed?'':'<button class="lremove" data-remove title="Remove">Remove</button>')+
           '</div>'+
         '</div>';
+      /* user-controlled values set safely (DB is open-write) */
+      card.querySelector('[data-title]').textContent = it.title || (meta.platform==='Link'?hostOf(it.url):meta.platform);
+      card.querySelector('[data-sub]').textContent = hostOf(it.url);
+      var link=card.querySelector('.open-link'); if(safeUrl) link.setAttribute('href',safeUrl);
+      if(it.image) setThumb(card,it.image,it.title||'');
       card.querySelector('[data-up]').addEventListener('click',function(){self.vote(it.id,1);});
       card.querySelector('[data-down]').addEventListener('click',function(){self.vote(it.id,-1);});
       var rm=card.querySelector('[data-remove]');
       if(rm) rm.addEventListener('click',function(){self.remove(it.id);});
       self.cards.appendChild(card);
-      enrich(it.url,card);
+      if(safeUrl && (!it.title || !it.image)) enrich(safeUrl,card,self,it);
     });
     self.flashId=null;
   };
 
-  /* Try to pull a real thumbnail + title via oEmbed (TikTok / YouTube support CORS). */
-  function enrich(url,card){
-    var end=null;
-    if(/tiktok\./i.test(url)) end='https://www.tiktok.com/oembed?url='+encodeURIComponent(url);
-    else if(/youtu/i.test(url)) end='https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(url);
-    if(!end) return;
-    var ctrl=new AbortController(); var to=setTimeout(function(){ctrl.abort();},6000);
-    fetch(end,{signal:ctrl.signal}).then(function(r){return r.ok?r.json():null;}).then(function(d){
+  /* ---------- Link preview (title + image) ---------- */
+  function setThumb(card,src,alt){
+    if(!/^https?:\/\//i.test(src)) return;
+    var thumb=card.querySelector('.lthumb'); if(!thumb) return;
+    var existing=thumb.querySelector('img'); if(existing){ existing.src=src; return; }
+    var g=card.querySelector('[data-glyph]'); if(g) g.remove();
+    var img=document.createElement('img'); img.loading='lazy'; img.alt=alt||'preview'; img.src=src;
+    img.onerror=function(){ img.remove(); };
+    thumb.appendChild(img);
+  }
+  function metaCache(){ return load('board-meta-cache'); }
+  function applyMeta(card,m){
+    if(m.title){ var t=card.querySelector('[data-title]'); if(t) t.textContent=m.title; }
+    if(m.image) setThumb(card,m.image,m.title||'');
+  }
+  function storeMeta(board,item,m){
+    if(!board || !board.shared || !item) return;
+    if(/^seed-/.test(item.id)) return;              // seeds aren't in the DB
+    var upd={};
+    if(m.title && !item.title) upd.title=m.title;   // only write genuinely new fields
+    if(m.image && !item.image) upd.image=m.image;
+    if(!Object.keys(upd).length) return;            // nothing new -> no DB churn
+    try{ board.ref.child('items/'+item.id).update(upd); }catch(e){}
+  }
+  /* Microlink returns Open Graph title + image for almost any URL, with CORS. */
+  function enrich(url,card,board,item){
+    var cache=metaCache(), hit=cache[url];
+    if(hit){ applyMeta(card,hit); storeMeta(board,item,hit); return; }
+    var end='https://api.microlink.io/?url='+encodeURIComponent(url);
+    var ctrl=new AbortController(); var to=setTimeout(function(){ctrl.abort();},9000);
+    fetch(end,{signal:ctrl.signal}).then(function(r){return r.ok?r.json():null;}).then(function(j){
       clearTimeout(to);
-      if(!d) return;
-      if(d.title){
-        var t=card.querySelector('[data-title]');
-        if(t) t.textContent=d.title;
-      }
-      if(d.thumbnail_url){
-        var thumb=card.querySelector('.lthumb');
-        var g=card.querySelector('[data-glyph]'); if(g) g.remove();
-        var img=document.createElement('img'); img.loading='lazy'; img.alt=d.title||'preview'; img.src=d.thumbnail_url;
-        thumb.appendChild(img);
-      }
+      if(!j||j.status!=='success'||!j.data) return;
+      var img=(j.data.image&&j.data.image.url)||(j.data.logo&&j.data.logo.url)||'';
+      if(!/^https?:\/\//i.test(img)) img='';
+      var m={title:(j.data.title||'').slice(0,140), image:img};
+      if(!m.title && !m.image) return;
+      cache[url]=m; save('board-meta-cache',cache);
+      applyMeta(card,m); storeMeta(board,item,m);
     }).catch(function(){ clearTimeout(to); });
   }
 
