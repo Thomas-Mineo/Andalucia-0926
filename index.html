@@ -525,12 +525,28 @@
       for(var i=segs.length-1;i>=0;i--){
         var w=segs[i].replace(/\.(html?|php|aspx)$/i,'').replace(/[-_]+/g,' ').trim();
         w=w.replace(/\b[a-z]?\d{3,}[a-z0-9]*\b/gi,'').replace(/\b[0-9a-f]{16,}\b/gi,'').replace(/\s+/g,' ').trim();
+        /* Share-link codes (ZN8JbH1WC, uEdPhzqZXV8zARzA8) read as noise, not a
+           name: one long token carrying digits or jumbled capitalisation. */
+        if(/^[A-Za-z0-9_-]{6,}$/.test(w) && (/\d/.test(w) || /[a-z][A-Z]/.test(w))) continue;
         if(w.replace(/[^a-z]/gi,'').length>=4){ cand=w; break; }
       }
-      if(!cand) return hostOf(url);
+      if(!cand) return '';
       cand=cand.split(' ').filter(Boolean).map(function(x){return x.charAt(0).toUpperCase()+x.slice(1);}).join(' ');
       return cand.length>80?cand.slice(0,80)+'…':cand;
-    }catch(e){ return hostOf(url); }
+    }catch(e){ return ''; }
+  }
+  /* Card label when no preview could be fetched: a slug if it reads like words,
+     otherwise the platform ("TikTok video") rather than a random code. */
+  function fallbackName(url){
+    var tt=url.match(/tiktok\.com\/(@[\w.\-]+)\/video\//i);
+    if(tt) return tt[1]+' · TikTok';                 // creator handle beats "Video"
+    var slug=prettyName(url), meta=classify(url);
+    if(slug) return meta.platform==='Link'?slug:slug+' · '+meta.platform;
+    if(meta.platform==='TikTok') return 'TikTok video';
+    if(meta.platform==='Instagram') return 'Instagram post';
+    if(meta.platform==='YouTube') return 'YouTube video';
+    if(meta.platform==='Google Maps') return 'Google Maps place';
+    return hostOf(url);
   }
 
   function load(key){ try{return JSON.parse(localStorage.getItem(key))||{};}catch(e){return {};} }
@@ -564,6 +580,9 @@
       this.ref=SHARED_DB.ref('boards/'+name);
       this.ref.child('items').on('value',function(s){ self.dbItems=s.val()||{}; self.render(); });
       this.ref.child('votes').on('value',function(s){ self.dbVotes=s.val()||{}; self.render(); });
+      this.seedOnce();
+    }else{
+      this.seedLocalOnce();
     }
 
     document.querySelector('form[data-board="'+name+'"]').addEventListener('submit',function(e){
@@ -607,7 +626,9 @@
     }
     var l=load(this.itemsKey); return Array.isArray(l)?l:[];
   };
-  Board.prototype.allItems=function(){ return SEEDS[this.name].concat(this.userItems()); };
+  /* Starter links are migrated into the store by seedOnce/seedLocalOnce, so
+     everything on the board is a real, editable item. */
+  Board.prototype.allItems=function(){ return this.userItems(); };
   Board.prototype.votesMap=function(){ return this.shared?(this.dbVotes||{}):load(this.votesKey); };
   Board.prototype.add=function(url){
     if(this.allItems().some(function(i){return i.url===url;})){ return 'dup'; }
@@ -623,6 +644,46 @@
     this.flashId=id;
     this.render();
     return 'ok';
+  };
+  /* The starter links used to be rendered straight from code, which left them
+     with no Rename/Remove controls. Copy them into the store once so they behave
+     like every other card. */
+  Board.prototype.seedOnce=function(){
+    var self=this, seeds=SEEDS[this.name]||[];
+    if(!seeds.length) return;
+    this.ref.child('seeded').once('value').then(function(s){
+      if(s.val()) return;
+      return self.ref.child('items').once('value').then(function(si){
+        var existing=si.val()||{}, urls={};
+        Object.keys(existing).forEach(function(k){ if(existing[k]&&existing[k].url) urls[existing[k].url]=1; });
+        seeds.forEach(function(sd,i){
+          if(urls[sd.url]) return;                       // never duplicate
+          self.ref.child('items').push({url:sd.url, ts:Date.now()-((seeds.length-i)*1000)});
+        });
+        return self.ref.child('seeded').set(true);
+      });
+    }).catch(function(){});
+  };
+  Board.prototype.seedLocalOnce=function(){
+    var flag='board-'+this.name+'-seeded';
+    if(localStorage.getItem(flag)==='1') return;
+    var seeds=SEEDS[this.name]||[], items=this.userItems(), urls={};
+    items.forEach(function(i){ urls[i.url]=1; });
+    seeds.forEach(function(sd,i){ if(!urls[sd.url]) items.push({id:'s-'+i+'-'+Date.now(), url:sd.url}); });
+    save(this.itemsKey,items);
+    localStorage.setItem(flag,'1');
+  };
+  /* Manual label, shared with everyone — always works, whatever the site blocks. */
+  Board.prototype.rename=function(id,title){
+    if(this.shared){
+      try{ this.ref.child('items/'+id).update({title:title||null}); }catch(e){}
+      this.say(title?'Renamed ✓':'Name cleared — preview will be looked up again.', false);
+      return;
+    }
+    var items=this.userItems().map(function(i){ if(i.id===id) i.title=title; return i; });
+    save(this.itemsKey,items);
+    this.say(title?'Renamed ✓':'Name cleared.', false);
+    this.render();
   };
   Board.prototype.remove=function(id){
     if(this.shared){ this.ref.child('items/'+id).remove(); return; }
@@ -651,7 +712,6 @@
     if(!items.length){ this.cards.innerHTML='<div class="empty">No links yet — add the first one above.</div>'; return; }
     items.forEach(function(it){
       var meta=classify(it.url);
-      var isSeed=/^seed-/.test(it.id);
       var score=votes[it.id]||0, my=mine[it.id]||0;
       var safeUrl=/^https?:\/\//i.test(it.url)?it.url:'';
       var card=document.createElement('div'); card.className='lcard'+(it.id===self.flashId?' new':'');
@@ -670,20 +730,35 @@
               '<button data-down class="'+(my===-1?'on':'')+'" title="Vote down">▼</button>'+
             '</span>'+
             '<a class="open-link" target="_blank" rel="noopener">Open ↗</a>'+
-            (isSeed?'':'<button class="lremove" data-remove title="Remove">Remove</button>')+
+            '<button class="lremove" data-rename title="Set the name shown on this card">Rename</button>'+
+            '<button class="lremove" data-remove title="Remove">Remove</button>'+
           '</div>'+
         '</div>';
+      /* Ignore junk already saved by earlier lookups (e.g. TikTok's
+         "Make Your Day" homepage title) rather than trusting the stored value. */
+      var storedTitle = isGeneric({title:it.title}) ? '' : it.title;
+      var storedImage = (it.image && !isIconUrl(it.image)) ? it.image : '';
       /* user-controlled values set safely (DB is open-write) */
-      card.querySelector('[data-title]').textContent = it.title || (meta.platform==='Link'?prettyName(it.url):meta.platform);
+      card.querySelector('[data-title]').textContent = storedTitle || fallbackName(it.url);
       card.querySelector('[data-sub]').textContent = hostOf(it.url);
       var link=card.querySelector('.open-link'); if(safeUrl) link.setAttribute('href',safeUrl);
-      if(it.image) setThumb(card,it.image,it.title||'');
+      if(storedImage) setThumb(card,storedImage,storedTitle||'');
       card.querySelector('[data-up]').addEventListener('click',function(){self.vote(it.id,1);});
       card.querySelector('[data-down]').addEventListener('click',function(){self.vote(it.id,-1);});
       var rm=card.querySelector('[data-remove]');
       if(rm) rm.addEventListener('click',function(){self.remove(it.id);});
+      var rn=card.querySelector('[data-rename]');
+      if(rn) rn.addEventListener('click',function(){
+        var v=window.prompt('Name to show on this card:', storedTitle||fallbackName(it.url));
+        if(v===null) return;
+        self.rename(it.id, v.trim().slice(0,140));
+      });
       self.cards.appendChild(card);
-      if(safeUrl && (!it.title || !it.image)) enrich(safeUrl,card,self,it);
+      /* Re-look-up when nothing usable is stored; pass the cleaned values so the
+         junk gets overwritten rather than treated as already-done. */
+      if(safeUrl && (!storedTitle || !storedImage)){
+        enrich(safeUrl,card,self,{id:it.id,url:it.url,title:storedTitle,image:storedImage});
+      }
     });
     self.flashId=null;
   };
@@ -737,7 +812,6 @@
   }
   function storeMeta(board,item,m){
     if(!board || !board.shared || !item) return;
-    if(/^seed-/.test(item.id)) return;              // seeds aren't in the DB
     var upd={};
     if(m.title && !item.title) upd.title=m.title;   // only write genuinely new fields
     if(m.image && !item.image) upd.image=m.image;
