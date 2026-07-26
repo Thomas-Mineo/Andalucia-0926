@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="A visual five-day family itinerary for Granada and Málaga: sights, food, route maps, walking routes and booking information." />
+  <title>Granada + Málaga — 5-Day Family Guide</title>
+  <style>
+    :root{
+      --ink:#16201d;
+      --muted:#64706b;
+      --paper:#f7f2e8;
+      --card:#fffdf8;
+      --granada:#a8432d;
+      --granada-soft:#f2d8c9;
+      --malaga:#087f8c;
+      --malaga-soft:#cae9e8;
+      --gold:#d79b32;
+      --line:rgba(22,32,29,.13);
+      --shadow:0 18px 50px rgba(38,31,22,.12);
+      --radius:22px;
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;
+      font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color:var(--ink);
+      background:
+        radial-gradient(circle at 5% 2%, rgba(215,155,50,.16), transparent 27rem),
+        var(--paper);
+      line-height:1.55;
+    }
+    a{color:inherit}
+    img{display:block;max-width:100%}
+    button{font:inherit}
+    .wrap{width:min(1180px, calc(100% - 34px));margin:auto}
+    .eyebrow{
+      text-transform:uppercase;letter-spacing:.16em;font-size:.75rem;font-weight:800;color:var(--gold)
+    }
+    .topnav{
+      position:sticky;top:0;z-index:1000;background:rgba(247,242,232,.91);
+      backdrop-filter:blur(16px);border-bottom:1px solid var(--line)
+    }
+    .navinner{display:flex;gap:.6rem;align-items:center;overflow-x:auto;padding:11px 0;scrollbar-width:none}
+    .navinner::-webkit-scrollbar{display:none}
+    .navinner a{
+      text-decoration:none;white-space:nowrap;padding:.55rem .8rem;border-radius:999px;font-size:.88rem;font-weight:750
+    }
+    .navinner a:hover{background:white}
+    .navbrand{margin-right:auto!important;font-family:Georgia,serif;font-weight:800!important}
+    main section{padding:64px 0}
+    .section-head{display:flex;align-items:end;justify-content:space-between;gap:28px;margin-bottom:30px}
+    .section-head h2{font-family:Georgia,serif;font-size:clamp(2rem,4vw,3.55rem);line-height:1;margin:.35rem 0}
+    .section-head p{max-width:650px;color:var(--muted);margin:0}
+    .alert{
+      padding:18px 20px;border-radius:18px;background:#fff4d8;border:1px solid #edcf83;
+      display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;margin:22px 0
+    }
+    .alert strong{display:block;margin-bottom:3px}
+    .icon{
+      width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:white;font-size:1.2rem
+    }
+    .filters{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:24px}
+    .filter{
+      border:1px solid var(--line);background:white;border-radius:999px;padding:.65rem 1rem;cursor:pointer;font-weight:750
+    }
+    .filter.active{background:var(--ink);color:white}
+    .days{display:grid;gap:22px}
+    .day{
+      display:grid;grid-template-columns:160px 1fr;background:var(--card);border:1px solid var(--line);
+      border-radius:var(--radius);overflow:hidden;box-shadow:0 12px 35px rgba(38,31,22,.07)
+    }
+    .day-label{
+      padding:26px 22px;color:white;display:flex;flex-direction:column;justify-content:space-between;min-height:330px
+    }
+    .day[data-city="granada"] .day-label{background:linear-gradient(145deg,#bc573d,var(--granada))}
+    .day[data-city="malaga"] .day-label{background:linear-gradient(145deg,#1596a4,var(--malaga))}
+    .day[data-city="transfer"] .day-label{background:linear-gradient(145deg,#d7a443,#9c6a19)}
+    .day-number{font-family:Georgia,serif;font-size:3.2rem;font-weight:800;line-height:1}
+    .day-label small{color:rgba(255,255,255,.75)}
+    .day-body{padding:26px}
+    .day-body h3{font-family:Georgia,serif;font-size:1.75rem;margin:0 0 .25rem}
+    .day-sub{color:var(--muted);margin:0 0 20px}
+    .timeline{display:grid;gap:12px}
+    .stop{
+      display:grid;grid-template-columns:82px 1fr auto;gap:15px;padding:14px 0;border-top:1px solid var(--line);align-items:start
+    }
+    .stop:first-child{border-top:0}
+    .time{font-weight:850;font-size:.83rem;color:var(--muted);padding-top:2px}
+    .stop h4{margin:0 0 3px;font-size:1rem}
+    .stop p{margin:0;color:var(--muted);font-size:.94rem}
+    .pill{
+      border-radius:999px;padding:.3rem .6rem;font-size:.74rem;font-weight:800;background:#eef0ed;white-space:nowrap
+    }
+    .pill.book{background:#ffe2d7;color:#8e2c18}
+    .pill.free{background:#dff2dd;color:#32692a}
+    .pill.food{background:#fff0c8;color:#7a5510}
+    .day-footer{
+      margin-top:18px;padding-top:16px;border-top:1px dashed var(--line);display:flex;gap:10px;flex-wrap:wrap
+    }
+    .btn{
+      display:inline-flex;align-items:center;justify-content:center;gap:.45rem;
+      padding:.72rem .95rem;border-radius:12px;text-decoration:none;font-weight:800;border:1px solid var(--line);background:white;cursor:pointer
+    }
+    .btn.primary{background:var(--ink);color:white;border-color:var(--ink)}
+    .btn.granada{background:var(--granada);color:white;border-color:var(--granada)}
+    .btn.malaga{background:var(--malaga);color:white;border-color:var(--malaga)}
+    .map-block{display:grid;gap:16px;margin-bottom:34px}
+    .map-block:last-child{margin-bottom:0}
+    .map-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .map-head h3{font-family:Georgia,serif;font-size:1.7rem;margin:0}
+    .map-figure{margin:0;border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);box-shadow:var(--shadow);background:#ece7dd}
+    .map-figure img{width:100%;height:auto;display:block}
+    .legend{display:flex;flex-wrap:wrap;gap:8px}
+    .legend .lg{display:inline-flex;align-items:center;gap:.5rem;background:white;border:1px solid var(--line);border-radius:999px;padding:.4rem .7rem;font-size:.82rem;font-weight:700}
+    .legend .dot{width:20px;height:20px;border-radius:50%;color:#fff;display:grid;place-items:center;font-size:.7rem;font-weight:800}
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+    .food-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+    .mini{
+      background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px
+    }
+    .mini h3{font-family:Georgia,serif;margin:.2rem 0 .55rem;font-size:1.3rem}
+    .mini p{color:var(--muted);font-size:.92rem;margin:.3rem 0}
+    .mini .citymark{font-weight:900;font-size:.73rem;letter-spacing:.1em;text-transform:uppercase}
+    .citymark.g{color:var(--granada)}
+    .citymark.m{color:var(--malaga)}
+    .dish-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+    .dish{padding:.42rem .65rem;background:#f0ede6;border-radius:10px;font-size:.82rem;font-weight:750}
+
+    /* Add-and-vote board */
+    .board{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px;box-shadow:0 12px 34px rgba(38,31,22,.07)}
+    .board-form{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+    .board-form input{
+      flex:1 1 320px;min-width:0;padding:.8rem 1rem;border-radius:12px;border:1px solid var(--line);background:white;font-size:.95rem
+    }
+    .board-note{font-size:.8rem;color:var(--muted);margin:0 0 18px}
+    .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+    .lcard{display:flex;flex-direction:column;background:white;border:1px solid var(--line);border-radius:16px;overflow:hidden}
+    .lthumb{height:150px;background:#e9e5db;position:relative;display:grid;place-items:center;overflow:hidden}
+    .lthumb img{width:100%;height:100%;object-fit:cover}
+    .lthumb .platform{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.62);color:#fff;font-size:.72rem;font-weight:800;padding:.28rem .55rem;border-radius:999px;display:inline-flex;gap:.35rem;align-items:center}
+    .lthumb .glyph{font-size:2.4rem}
+    .lbody{padding:14px 15px;display:flex;flex-direction:column;gap:10px;flex:1}
+    .ltitle{font-weight:800;font-size:.96rem;line-height:1.35;margin:0;word-break:break-word}
+    .lsub{font-size:.78rem;color:var(--muted);margin:0;word-break:break-all}
+    .lactions{margin-top:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .vote{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:white}
+    .vote button{border:0;background:transparent;padding:.4rem .55rem;cursor:pointer;font-weight:800;line-height:1}
+    .vote button:hover{background:#f1ede4}
+    .vote button.on{color:var(--granada)}
+    .vote .score{min-width:1.6rem;text-align:center;font-weight:850;font-size:.9rem}
+    .open-link{margin-left:auto;font-weight:800;text-decoration:none;font-size:.85rem;color:var(--malaga)}
+    .lremove{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:.78rem;font-weight:700}
+    .lremove:hover{color:var(--granada)}
+    .empty{color:var(--muted);font-size:.9rem;grid-column:1/-1;text-align:center;padding:18px}
+
+    .budget{overflow-x:auto;background:white;border:1px solid var(--line);border-radius:var(--radius)}
+    table{border-collapse:collapse;width:100%;min-width:720px}
+    th,td{padding:15px 17px;text-align:left;border-bottom:1px solid var(--line)}
+    th{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;background:#f3efe7}
+    tr:last-child td{border-bottom:0}
+    .checklist{
+      display:grid;grid-template-columns:repeat(2,1fr);gap:10px;background:var(--card);border:1px solid var(--line);
+      border-radius:var(--radius);padding:22px
+    }
+    .check{display:flex;gap:10px;align-items:start;padding:10px;border-radius:12px}
+    .check:hover{background:#f3efe7}
+    .check input{width:18px;height:18px;margin-top:2px;accent-color:var(--granada)}
+    footer{padding:36px 0 70px;color:var(--muted);font-size:.88rem}
+    .hide{display:none!important}
+    @media(max-width:900px){
+      .day{grid-template-columns:110px 1fr}
+      .two-col{grid-template-columns:1fr}
+      .food-grid,.cards{grid-template-columns:1fr 1fr}
+    }
+    @media(max-width:620px){
+      .wrap{width:min(100% - 22px,1180px)}
+      main section{padding:46px 0}
+      .section-head{display:block}
+      .food-grid,.cards,.checklist{grid-template-columns:1fr}
+      .day{grid-template-columns:1fr}
+      .day-label{min-height:auto;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:15px;padding:17px 20px}
+      .day-label .day-number{font-size:2.35rem}
+      .day-body{padding:20px}
+      .stop{grid-template-columns:64px 1fr}
+      .stop .pill{grid-column:2;justify-self:start}
+    }
+    @media print{
+      .topnav,.filters,.board-form,.checklist input{display:none}
+      body{background:white}
+      main section{padding:24px 0}
+      .day,.mini,.board{box-shadow:none;break-inside:avoid}
+      a{text-decoration:none}
+    }
+  </style>
+</head>
+<body>
+<nav class="topnav">
+  <div class="wrap navinner">
+    <a class="navbrand" href="#">Granada × Málaga</a>
+    <a href="#ideas">More ideas</a>
+    <a href="#plan">5-day plan</a>
+    <a href="#maps">Route maps</a>
+    <a href="#eat">What to eat</a>
+    <a href="#book">Book first</a>
+  </div>
+</nav>
+
+<main>
+  <section id="ideas">
+    <div class="wrap">
+      <div class="section-head">
+        <div><div class="eyebrow">Family suggestions</div><h2>More ideas — add &amp; vote</h2></div>
+        <p>Paste a TikTok, Instagram, Google Maps or any link. Everyone can add ideas and vote on what we should do.</p>
+      </div>
+      <div class="board" id="board-ideas">
+        <form class="board-form" data-board="ideas">
+          <input type="url" name="url" placeholder="Paste a link (TikTok, Instagram, Google Maps…)" required />
+          <button class="btn primary" type="submit">Add idea</button>
+        </form>
+        <p class="board-note">Links show a picture or name automatically. Your additions and votes are saved in this browser on this device.</p>
+        <div class="cards" data-cards="ideas"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="plan">
+    <div class="wrap">
+      <div class="section-head">
+        <div><div class="eyebrow">The route</div><h2>Five days, family-paced</h2></div>
+        <p>Two nights in Granada, then drive to Málaga for the coast. Every day has its own walking route.</p>
+      </div>
+      <div class="filters" aria-label="Filter itinerary">
+        <button class="filter active" data-filter="all">All 5 days</button>
+        <button class="filter" data-filter="granada">Granada only</button>
+        <button class="filter" data-filter="transfer">Transfer day</button>
+        <button class="filter" data-filter="malaga">Málaga only</button>
+      </div>
+
+      <div class="days">
+        <article class="day" data-city="granada">
+          <div class="day-label"><div><small>GRANADA</small><div class="day-number">01</div></div><strong>Old city + sunset</strong></div>
+          <div class="day-body">
+            <h3>Settle into Granada, then climb only once</h3>
+            <p class="day-sub">A gentle historical introduction ending with the definitive Alhambra view.</p>
+            <div class="timeline">
+              <div class="stop"><div class="time">10:30</div><div><h4>Cathedral quarter, Alcaicería &amp; Capilla Real</h4><p>Wander the old silk-market lanes.</p></div><span class="pill">1.5–2 hr</span></div>
+              <div class="stop"><div class="time">13:00</div><div><h4>Tapas lunch in Centro or Realejo</h4><p>Order drinks one round at a time — each usually comes with a free tapa.</p></div><span class="pill food">Food</span></div>
+              <div class="stop"><div class="time">16:30</div><div><h4>Carrera del Darro &amp; Paseo de los Tristes</h4><p>Riverside walk below the Albaicín.</p></div><span class="pill free">Free</span></div>
+              <div class="stop"><div class="time">Sunset</div><div><h4>Mirador de San Nicolás</h4><p>The Albaicín is a restricted-traffic zone — park below or taxi up, then walk down.</p></div><span class="pill free">Viewpoint</span></div>
+            </div>
+            <div class="day-footer">
+              <a class="btn granada" href="https://www.google.com/maps/dir/?api=1&travelmode=walking&origin=Catedral+de+Granada&destination=Mirador+de+San+Nicol%C3%A1s&waypoints=Alcaicer%C3%ADa+Granada%7CCarrera+del+Darro+Granada%7CPaseo+de+los+Tristes+Granada" target="_blank" rel="noopener">Day 1 walking route</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="day" data-city="granada">
+          <div class="day-label"><div><small>GRANADA</small><div class="day-number">02</div></div><strong>Alhambra day</strong></div>
+          <div class="day-body">
+            <h3>The Alhambra, then a deliberately easy afternoon</h3>
+            <p class="day-sub">Expect uneven ground, stairs and roughly four hours inside the complex.</p>
+            <div class="timeline">
+              <div class="stop"><div class="time">08:00</div><div><h4>Arrive 30 minutes before your timed entry</h4><p>Carry original passports/IDs.</p></div><span class="pill book">Book first</span></div>
+              <div class="stop"><div class="time">08:30</div><div><h4>Alcazaba → Nasrid Palaces → Partal → Generalife</h4><p>Order follows the Nasrid time printed on your ticket.</p></div><span class="pill">3.5–4.5 hr</span></div>
+              <div class="stop"><div class="time">14:00</div><div><h4>Long lunch and hotel rest</h4><p>Afternoons are hot; treat the break as part of the plan.</p></div><span class="pill food">Rest</span></div>
+              <div class="stop"><div class="time">18:00</div><div><h4>Realejo and Carmen de los Mártires</h4><p>A short walk, a hammam, or another tapas round.</p></div><span class="pill free">Flexible</span></div>
+            </div>
+            <div class="day-footer">
+              <a class="btn granada" href="https://tickets.alhambra-patronato.es/" target="_blank" rel="noopener">Official Alhambra tickets</a>
+              <a class="btn" href="https://www.google.com/maps/dir/?api=1&travelmode=walking&origin=Alcazaba+Alhambra+Granada&destination=Carmen+de+los+M%C3%A1rtires&waypoints=Palacios+Nazar%C3%ADes%7CGeneralife+Granada" target="_blank" rel="noopener">Day 2 walking route</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="day" data-city="transfer">
+          <div class="day-label"><div><small>BOTH CITIES</small><div class="day-number">03</div></div><strong>Choice + drive</strong></div>
+          <div class="day-body">
+            <h3>Use the morning for what your family actually likes</h3>
+            <p class="day-sub">One last Granada stop, then an easy drive to the coast.</p>
+            <div class="timeline">
+              <div class="stop"><div class="time">09:30</div><div><h4>Choose one: Sacromonte, Monasterio de San Jerónimo or Science Park</h4><p>Landscape and flamenco, art, or an interactive break from monuments.</p></div><span class="pill">Pick one</span></div>
+              <div class="stop"><div class="time">13:00</div><div><h4>Early lunch near your hotel</h4><p>Leave margin to load the car.</p></div><span class="pill food">Food</span></div>
+              <div class="stop"><div class="time">15:00</div><div><h4>Drive Granada → Málaga</h4><p>A-92 then A-45, about 1h30 and toll-free.</p></div><span class="pill">Drive</span></div>
+              <div class="stop"><div class="time">18:00</div><div><h4>Muelle Uno, Palmeral de las Sorpresas and old-town dinner</h4><p>A flat, low-effort coastal evening after check-in.</p></div><span class="pill free">Easy</span></div>
+            </div>
+            <div class="day-footer">
+              <a class="btn primary" href="https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=Granada&destination=Muelle+Uno+M%C3%A1laga" target="_blank" rel="noopener">Driving route to Málaga</a>
+              <a class="btn" href="https://www.google.com/maps/search/?api=1&query=parking+centro+Malaga" target="_blank" rel="noopener">Málaga parking</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="day" data-city="malaga">
+          <div class="day-label"><div><small>MÁLAGA</small><div class="day-number">04</div></div><strong>Fortress + Picasso</strong></div>
+          <div class="day-body">
+            <h3>Moorish Málaga, a proper lunch, then one museum</h3>
+            <p class="day-sub">The Alcazaba and Picasso Museum are close enough to combine on foot.</p>
+            <div class="timeline">
+              <div class="stop"><div class="time">09:00</div><div><h4>Roman Theatre and Alcazaba</h4><p>Go before the heat. Combined Alcazaba–Gibralfaro ticket only if you enter both.</p></div><span class="pill book">€7 / €10 combo</span></div>
+              <div class="stop"><div class="time">12:00</div><div><h4>Cathedral and historic centre</h4><p>The interior visit includes an audio guide.</p></div><span class="pill">Optional</span></div>
+              <div class="stop"><div class="time">14:00</div><div><h4>Atarazanas market or a long tapas lunch</h4><p>The market is best before mid-afternoon.</p></div><span class="pill food">Food</span></div>
+              <div class="stop"><div class="time">16:30</div><div><h4>Museo Picasso Málaga</h4><p>Allow 75–90 minutes.</p></div><span class="pill book">€13</span></div>
+              <div class="stop"><div class="time">Sunset</div><div><h4>Gibralfaro viewpoint</h4><p>Drive up and park at the castle.</p></div><span class="pill">Optional</span></div>
+            </div>
+            <div class="day-footer">
+              <a class="btn malaga" href="https://www.museopicassomalaga.org/en/visita" target="_blank" rel="noopener">Picasso Museum tickets</a>
+              <a class="btn" href="https://www.google.com/maps/dir/?api=1&travelmode=walking&origin=Teatro+Romano+M%C3%A1laga&destination=Museo+Picasso+M%C3%A1laga&waypoints=Alcazaba+de+M%C3%A1laga%7CCatedral+de+M%C3%A1laga%7CMercado+de+Atarazanas" target="_blank" rel="noopener">Day 4 walking route</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="day" data-city="malaga">
+          <div class="day-label"><div><small>MÁLAGA</small><div class="day-number">05</div></div><strong>Neighborhood + sea</strong></div>
+          <div class="day-body">
+            <h3>Finish with Málaga rather than another checklist</h3>
+            <p class="day-sub">A neighborhood-and-beach day gives the trip a different rhythm.</p>
+            <div class="timeline">
+              <div class="stop"><div class="time">10:00</div><div><h4>Soho street art and the port</h4><p>Flat, easy walking.</p></div><span class="pill free">Free</span></div>
+              <div class="stop"><div class="time">12:30</div><div><h4>Pedregalejo or El Palo</h4><p>Drive east (~15 min) and park along the seafront.</p></div><span class="pill">Coast</span></div>
+              <div class="stop"><div class="time">14:00</div><div><h4>Espetos and fried fish</h4><p>Sardine skewers, mixed fried fish and salad to share. Confirm prices for fish sold by weight.</p></div><span class="pill food">Must eat</span></div>
+              <div class="stop"><div class="time">16:00</div><div><h4>Beach, botanical garden or extra museum</h4><p>Beach in good weather; Jardín La Concepción for greenery.</p></div><span class="pill">Weather choice</span></div>
+            </div>
+            <div class="day-footer">
+              <a class="btn malaga" href="https://www.google.com/maps/dir/?api=1&travelmode=walking&origin=Soho+M%C3%A1laga&destination=Muelle+Uno+M%C3%A1laga" target="_blank" rel="noopener">Day 5 walking route</a>
+              <a class="btn" href="https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=Muelle+Uno+M%C3%A1laga&destination=Pedregalejo" target="_blank" rel="noopener">Drive east to Pedregalejo</a>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="maps">
+    <div class="wrap">
+      <div class="section-head">
+        <div><div class="eyebrow">Real street maps</div><h2>Itinerary route maps</h2></div>
+        <p>Numbered stops in visit order. Tap any pin for its name and a directions link. Lines show order, not exact navigation.</p>
+      </div>
+
+      <div class="map-block">
+        <div class="map-head">
+          <h3>Málaga — arrival evening + 2 days</h3>
+        </div>
+        <figure class="map-figure">
+          <img src="assets/malaga-route-map.png" alt="Málaga real street map route: arrival at Muelle Uno, Day 4 history and art (Roman Theatre, Alcazaba, Cathedral, Atarazanas, Picasso, Gibralfaro), Day 5 Soho plus La Malagueta or Nerja beach choice." />
+        </figure>
+        <div class="legend">
+          <span class="lg"><span class="dot" style="background:#8a4a2a">1</span> Arrival · Muelle Uno</span>
+          <span class="lg"><span class="dot" style="background:#1f5fa8">2–6</span> Day 4 · History + art</span>
+          <span class="lg"><span class="dot" style="background:#1f7a4d">7–8</span> Day 5 · Soho + beach</span>
+        </div>
+      </div>
+
+      <div class="map-block">
+        <div class="map-head">
+          <h3>Granada — 2 sightseeing days</h3>
+        </div>
+        <figure class="map-figure">
+          <img src="assets/granada-route-map.png" alt="Granada real street map route: Day 1 historic centre and Albaicín (Cathedral, Carrera del Darro, Mirador de San Nicolás), Day 2 Alhambra, Generalife and Realejo." />
+        </figure>
+        <div class="legend">
+          <span class="lg"><span class="dot" style="background:#1f5fa8">1–3</span> Day 1 · Historic centre + Albaicín</span>
+          <span class="lg"><span class="dot" style="background:#1f7a4d">4–6</span> Day 2 · Alhambra + Realejo</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="eat">
+    <div class="wrap">
+      <div class="section-head">
+        <div><div class="eyebrow">Food strategy</div><h2>Share widely; do not reserve every meal</h2></div>
+        <p>Reserve only one or two special dinners. Tapas bars, markets and chiringuitos work better with flexibility.</p>
+      </div>
+      <div class="food-grid">
+        <div class="mini"><div class="citymark g">Granada essentials</div><h3>Tapas culture</h3><p>A drink commonly comes with a complimentary tapa.</p><div class="dish-list"><span class="dish">Habas con jamón</span><span class="dish">Berenjenas con miel</span><span class="dish">Migas</span><span class="dish">Pionono</span></div></div>
+        <div class="mini"><div class="citymark g">Reliable zones</div><h3>Centro, Realejo, Albaicín</h3><p>Classic names: Bodegas Castañeda, Los Diamantes, Bar Ávila and Casa Ysla for piononos.</p></div>
+        <div class="mini"><div class="citymark m">Málaga essentials</div><h3>Seafood and cold soups</h3><p>Espetos are sardines skewered on cane and grilled over a wood fire at coastal chiringuitos.</p><div class="dish-list"><span class="dish">Espetos</span><span class="dish">Pescaíto frito</span><span class="dish">Porra antequerana</span><span class="dish">Ajoblanco</span></div></div>
+      </div>
+
+      <div class="section-head" style="margin-top:42px">
+        <div><div class="eyebrow">Family picks</div><h2>Restaurants — add &amp; vote</h2></div>
+        <p>Drop links to places we might eat and vote them up or down.</p>
+      </div>
+      <div class="board" id="board-food">
+        <form class="board-form" data-board="food">
+          <input type="url" name="url" placeholder="Paste a restaurant link (TikTok, Google Maps…)" required />
+          <button class="btn primary" type="submit">Add restaurant</button>
+        </form>
+        <p class="board-note">Links show a picture or name automatically. Your additions and votes are saved in this browser on this device.</p>
+        <div class="cards" data-cards="food"></div>
+      </div>
+
+      <div class="alert" style="margin-top:22px">
+        <div class="icon">🗣️</div>
+        <div><strong>Useful dietary phrases</strong>
+          “Sin carne ni pescado” = no meat or fish. “¿Lleva frutos secos?” = does it contain nuts? “Para compartir” = to share.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="book">
+    <div class="wrap">
+      <div class="section-head">
+        <div><div class="eyebrow">Current key information</div><h2>Book these in this order</h2></div>
+        <p>Prices and hours below were checked on 26 July 2026. Religious services, special events and maintenance can alter access.</p>
+      </div>
+
+      <div class="budget">
+        <table>
+          <thead><tr><th>Priority</th><th>Place / journey</th><th>Current key information</th><th>What to do</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><strong>Alhambra general visit</strong></td><td>€22.27. 08:30–20:00 from 1 Apr–14 Oct; 08:30–18:00 from 15 Oct–31 Mar. Nasrid Palaces entry is strictly timed.</td><td>Buy from the official Patronato site as soon as dates are fixed. Carry original ID.</td></tr>
+            <tr><td>2</td><td><strong>Granada → Málaga by car</strong></td><td>A-92 → A-45, about 125 km and 1h30, toll-free.</td><td>Fuel up before leaving. Book hotel parking in Málaga — the Centro is largely restricted and street parking is paid.</td></tr>
+            <tr><td>3</td><td><strong>Picasso Museum Málaga</strong></td><td>Full access €13; reduced €11. Open daily with seasonal closing times; last entry 30 minutes before closing.</td><td>Reserve a mid- or late-afternoon slot after the Alcazaba.</td></tr>
+            <tr><td>4</td><td><strong>Alcazaba + Gibralfaro</strong></td><td>€7 for one monument; €10 combined. 09:00–20:00 Apr–Oct; 09:00–18:00 Nov–Mar. Last admission one hour before closing. Sundays after 14:00 currently free.</td><td>Enter the Alcazaba at 09:00. Decide later whether the family still wants Gibralfaro.</td></tr>
+            <tr><td>5</td><td><strong>Málaga Cathedral</strong></td><td>General visit €10 with audio guide. Seasonal weekday hours; Saturday usually closes earlier, Sunday opens for tourism at 14:00. Free access 08:30–09:00.</td><td>Keep flexible unless the interior is a family priority.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 style="font-family:Georgia,serif;font-size:1.8rem;margin:34px 0 16px">Planning checklist</h3>
+      <div class="checklist" id="checklist">
+        <label class="check"><input type="checkbox" data-key="alhambra"><span><strong>Alhambra booked</strong><br><small>Names and ID details exactly match.</small></span></label>
+        <label class="check"><input type="checkbox" data-key="hotel-granada"><span><strong>Granada lodging checked for lifts</strong><br><small>Ask about stairs and taxi access.</small></span></label>
+        <label class="check"><input type="checkbox" data-key="parking"><span><strong>Málaga hotel parking checked</strong><br><small>Centro is restricted; confirm a garage.</small></span></label>
+        <label class="check"><input type="checkbox" data-key="hotel-malaga"><span><strong>Málaga room noise checked</strong><br><small>Interior-facing room if staying in Centro.</small></span></label>
+        <label class="check"><input type="checkbox" data-key="restaurant"><span><strong>One special dinner reserved</strong><br><small>Leave the other meals spontaneous.</small></span></label>
+        <label class="check"><input type="checkbox" data-key="driving"><span><strong>Driving &amp; parking plan agreed</strong><br><small>Mind ZTL zones; park for Gibralfaro and Pedregalejo.</small></span></label>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">Family travel guide · Granada &amp; Málaga · updated 26 July 2026. Route maps use OpenStreetMap. Added ideas and votes are stored in your own browser.</div>
+</footer>
+
+<script>
+  /* ---------- Itinerary filter ---------- */
+  document.querySelectorAll('.filter').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('.filter').forEach(x=>x.classList.remove('active'));
+      btn.classList.add('active');
+      const f=btn.dataset.filter;
+      document.querySelectorAll('.day').forEach(day=>{
+        day.classList.toggle('hide', f!=='all' && day.dataset.city!==f);
+      });
+    });
+  });
+
+  /* ---------- Checklist persistence ---------- */
+  document.querySelectorAll('#checklist input[type=checkbox]').forEach(box=>{
+    const k='andalusia-'+box.dataset.key;
+    box.checked=localStorage.getItem(k)==='1';
+    box.addEventListener('change',()=>localStorage.setItem(k,box.checked?'1':'0'));
+  });
+
+  /* ---------- Add & vote boards ---------- */
+  var SEEDS={
+    ideas:[
+      {id:'seed-idea-1',url:'https://vm.tiktok.com/ZN8JbH1WC/'}
+    ],
+    food:[
+      {id:'seed-food-1',url:'https://vm.tiktok.com/ZN8JbkSR3/'},
+      {id:'seed-food-2',url:'https://vm.tiktok.com/ZN8JbUP7T/'},
+      {id:'seed-food-3',url:'https://maps.app.goo.gl/uEdPhzqZXV8zARzA8'}
+    ]
+  };
+
+  function classify(url){
+    var u=url.toLowerCase();
+    if(u.indexOf('tiktok.')>-1) return {platform:'TikTok',glyph:'🎵',color:'#000'};
+    if(u.indexOf('instagram.')>-1) return {platform:'Instagram',glyph:'📸',color:'#c13584'};
+    if(u.indexOf('youtu')>-1) return {platform:'YouTube',glyph:'▶️',color:'#c00'};
+    if(u.indexOf('goo.gl/maps')>-1||u.indexOf('maps.app.goo.gl')>-1||u.indexOf('google.'+'com/maps')>-1||u.indexOf('maps.google')>-1) return {platform:'Google Maps',glyph:'📍',color:'#1a73e8'};
+    return {platform:'Link',glyph:'🔗',color:'#555'};
+  }
+  function hostOf(url){ try{return new URL(url).hostname.replace(/^www\./,'');}catch(e){return url;} }
+
+  function load(key){ try{return JSON.parse(localStorage.getItem(key))||{};}catch(e){return {};} }
+  function save(key,val){ localStorage.setItem(key,JSON.stringify(val)); }
+
+  function Board(name){
+    this.name=name;
+    this.itemsKey='board-'+name+'-items';
+    this.votesKey='board-'+name+'-votes';
+    this.myKey='board-'+name+'-myvotes';
+    this.cards=document.querySelector('[data-cards="'+name+'"]');
+    var self=this;
+    document.querySelector('form[data-board="'+name+'"]').addEventListener('submit',function(e){
+      e.preventDefault();
+      var input=this.querySelector('input[name=url]');
+      var url=input.value.trim();
+      if(!url) return;
+      if(!/^https?:\/\//i.test(url)) url='https://'+url;
+      self.add(url);
+      input.value='';
+    });
+    this.render();
+  }
+  Board.prototype.userItems=function(){ var o=load(this.itemsKey); return Array.isArray(o)?o:[]; };
+  Board.prototype.allItems=function(){ return SEEDS[this.name].concat(this.userItems()); };
+  Board.prototype.add=function(url){
+    var items=this.userItems();
+    if(this.allItems().some(function(i){return i.url===url;})){ this.render(); return; }
+    items.push({id:'u-'+Date.now(),url:url});
+    save(this.itemsKey,items);
+    this.render();
+  };
+  Board.prototype.remove=function(id){
+    var items=this.userItems().filter(function(i){return i.id!==id;});
+    save(this.itemsKey,items);
+    this.render();
+  };
+  Board.prototype.vote=function(id,dir){
+    var votes=load(this.votesKey), mine=load(this.myKey);
+    var prev=mine[id]||0, next=(prev===dir)?0:dir;
+    votes[id]=(votes[id]||0)-prev+next;
+    mine[id]=next;
+    save(this.votesKey,votes); save(this.myKey,mine);
+    this.render();
+  };
+  Board.prototype.render=function(){
+    var self=this, votes=load(this.votesKey), mine=load(this.myKey);
+    var items=this.allItems().slice().sort(function(a,b){return (votes[b.id]||0)-(votes[a.id]||0);});
+    this.cards.innerHTML='';
+    if(!items.length){ this.cards.innerHTML='<div class="empty">No links yet — add the first one above.</div>'; return; }
+    items.forEach(function(it){
+      var meta=classify(it.url);
+      var isSeed=/^seed-/.test(it.id);
+      var score=votes[it.id]||0, my=mine[it.id]||0;
+      var card=document.createElement('div'); card.className='lcard';
+      card.innerHTML=
+        '<div class="lthumb" style="background:'+meta.color+'14">'+
+          '<span class="platform"><span>'+meta.glyph+'</span>'+meta.platform+'</span>'+
+          '<span class="glyph" data-glyph>'+meta.glyph+'</span>'+
+        '</div>'+
+        '<div class="lbody">'+
+          '<p class="ltitle" data-title>'+meta.platform+' link</p>'+
+          '<p class="lsub">'+hostOf(it.url)+'</p>'+
+          '<div class="lactions">'+
+            '<span class="vote">'+
+              '<button data-up class="'+(my===1?'on':'')+'" title="Vote up">▲</button>'+
+              '<span class="score">'+score+'</span>'+
+              '<button data-down class="'+(my===-1?'on':'')+'" title="Vote down">▼</button>'+
+            '</span>'+
+            '<a class="open-link" href="'+it.url+'" target="_blank" rel="noopener">Open ↗</a>'+
+            (isSeed?'':'<button class="lremove" data-remove title="Remove">Remove</button>')+
+          '</div>'+
+        '</div>';
+      card.querySelector('[data-up]').addEventListener('click',function(){self.vote(it.id,1);});
+      card.querySelector('[data-down]').addEventListener('click',function(){self.vote(it.id,-1);});
+      var rm=card.querySelector('[data-remove]');
+      if(rm) rm.addEventListener('click',function(){self.remove(it.id);});
+      self.cards.appendChild(card);
+      enrich(it.url,card);
+    });
+  };
+
+  /* Try to pull a real thumbnail + title via oEmbed (TikTok / YouTube support CORS). */
+  function enrich(url,card){
+    var end=null;
+    if(/tiktok\./i.test(url)) end='https://www.tiktok.com/oembed?url='+encodeURIComponent(url);
+    else if(/youtu/i.test(url)) end='https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(url);
+    if(!end) return;
+    var ctrl=new AbortController(); var to=setTimeout(function(){ctrl.abort();},6000);
+    fetch(end,{signal:ctrl.signal}).then(function(r){return r.ok?r.json():null;}).then(function(d){
+      clearTimeout(to);
+      if(!d) return;
+      if(d.title){
+        var t=card.querySelector('[data-title]');
+        if(t) t.textContent=d.title;
+      }
+      if(d.thumbnail_url){
+        var thumb=card.querySelector('.lthumb');
+        var g=card.querySelector('[data-glyph]'); if(g) g.remove();
+        var img=document.createElement('img'); img.loading='lazy'; img.alt=d.title||'preview'; img.src=d.thumbnail_url;
+        thumb.appendChild(img);
+      }
+    }).catch(function(){ clearTimeout(to); });
+  }
+
+  new Board('ideas');
+  new Board('food');
+</script>
+</body>
+</html>
