@@ -515,6 +515,20 @@
     return {platform:'Link',glyph:'🔗',color:'#555'};
   }
   function hostOf(url){ try{return new URL(url).hostname.replace(/^www\./,'');}catch(e){return url;} }
+  /* Readable name derived from the URL itself, for links whose preview can't be fetched. */
+  function prettyName(url){
+    try{
+      var u=new URL(url), segs=u.pathname.split('/').filter(Boolean), cand='';
+      for(var i=segs.length-1;i>=0;i--){
+        var w=segs[i].replace(/\.(html?|php|aspx)$/i,'').replace(/[-_]+/g,' ').trim();
+        w=w.replace(/\b[a-z]?\d{3,}[a-z0-9]*\b/gi,'').replace(/\b[0-9a-f]{16,}\b/gi,'').replace(/\s+/g,' ').trim();
+        if(w.replace(/[^a-z]/gi,'').length>=4){ cand=w; break; }
+      }
+      if(!cand) return hostOf(url);
+      cand=cand.split(' ').filter(Boolean).map(function(x){return x.charAt(0).toUpperCase()+x.slice(1);}).join(' ');
+      return cand.length>80?cand.slice(0,80)+'…':cand;
+    }catch(e){ return hostOf(url); }
+  }
 
   function load(key){ try{return JSON.parse(localStorage.getItem(key))||{};}catch(e){return {};} }
   function save(key,val){ localStorage.setItem(key,JSON.stringify(val)); }
@@ -641,7 +655,7 @@
           '</div>'+
         '</div>';
       /* user-controlled values set safely (DB is open-write) */
-      card.querySelector('[data-title]').textContent = it.title || (meta.platform==='Link'?hostOf(it.url):meta.platform);
+      card.querySelector('[data-title]').textContent = it.title || (meta.platform==='Link'?prettyName(it.url):meta.platform);
       card.querySelector('[data-sub]').textContent = hostOf(it.url);
       var link=card.querySelector('.open-link'); if(safeUrl) link.setAttribute('href',safeUrl);
       if(it.image) setThumb(card,it.image,it.title||'');
@@ -656,13 +670,24 @@
   };
 
   /* ---------- Link preview (title + image) ---------- */
+  /* Add a thumbnail without destroying the fallback glyph: the image is only
+     revealed once it actually loads, so hotlink-blocked hosts (TikTok, Instagram)
+     keep showing their platform icon instead of an empty grey box. */
   function setThumb(card,src,alt){
     if(!/^https?:\/\//i.test(src)) return;
     var thumb=card.querySelector('.lthumb'); if(!thumb) return;
-    var existing=thumb.querySelector('img'); if(existing){ existing.src=src; return; }
-    var g=card.querySelector('[data-glyph]'); if(g) g.remove();
-    var img=document.createElement('img'); img.loading='lazy'; img.alt=alt||'preview'; img.src=src;
-    img.onerror=function(){ img.remove(); };
+    if(thumb.querySelector('img')) return;
+    var img=document.createElement('img');
+    img.loading='lazy'; img.alt=alt||'preview';
+    img.referrerPolicy='no-referrer';          // many CDNs allow the fetch without a referer
+    img.style.display='none';
+    img.onload=function(){
+      if(!img.naturalWidth) return;            // treat 0-size as a failure
+      img.style.display='';
+      var g=card.querySelector('[data-glyph]'); if(g) g.remove();
+    };
+    img.onerror=function(){ img.remove(); };   // glyph stays put
+    img.src=src;
     thumb.appendChild(img);
   }
   function metaCache(){ return load('board-meta-cache'); }
@@ -679,22 +704,46 @@
     if(!Object.keys(upd).length) return;            // nothing new -> no DB churn
     try{ board.ref.child('items/'+item.id).update(upd); }catch(e){}
   }
-  /* Microlink returns Open Graph title + image for almost any URL, with CORS. */
+  function fetchJson(endpoint,ms){
+    var ctrl=new AbortController(), to=setTimeout(function(){ctrl.abort();},ms||9000);
+    return fetch(endpoint,{signal:ctrl.signal})
+      .then(function(r){ clearTimeout(to); return r.ok?r.json():null; })
+      .catch(function(){ clearTimeout(to); return null; });
+  }
+  /* TikTok/YouTube expose their own oEmbed (better titles than a scraper);
+     everything else goes through Microlink for Open Graph data. */
   function enrich(url,card,board,item){
     var cache=metaCache(), hit=cache[url];
     if(hit){ applyMeta(card,hit); storeMeta(board,item,hit); return; }
-    var end='https://api.microlink.io/?url='+encodeURIComponent(url);
-    var ctrl=new AbortController(); var to=setTimeout(function(){ctrl.abort();},9000);
-    fetch(end,{signal:ctrl.signal}).then(function(r){return r.ok?r.json():null;}).then(function(j){
-      clearTimeout(to);
-      if(!j||j.status!=='success'||!j.data) return;
-      var img=(j.data.image&&j.data.image.url)||(j.data.logo&&j.data.logo.url)||'';
-      if(!/^https?:\/\//i.test(img)) img='';
-      var m={title:(j.data.title||'').slice(0,140), image:img};
-      if(!m.title && !m.image) return;
+
+    function finish(m){
+      if(!m || (!m.title && !m.image)) return;
       cache[url]=m; save('board-meta-cache',cache);
       applyMeta(card,m); storeMeta(board,item,m);
-    }).catch(function(){ clearTimeout(to); });
+    }
+    function viaMicrolink(){
+      return fetchJson('https://api.microlink.io/?url='+encodeURIComponent(url)).then(function(j){
+        if(!j||j.status!=='success'||!j.data) return null;
+        var img=(j.data.image&&j.data.image.url)||(j.data.logo&&j.data.logo.url)||'';
+        return {title:(j.data.title||'').slice(0,140), image:/^https?:\/\//i.test(img)?img:''};
+      });
+    }
+    var oembed=null;
+    if(/tiktok\./i.test(url)) oembed='https://www.tiktok.com/oembed?url='+encodeURIComponent(url);
+    else if(/youtu/i.test(url)) oembed='https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(url);
+
+    if(oembed){
+      fetchJson(oembed).then(function(d){
+        var m=d?{title:(d.title||d.author_name||'').slice(0,140), image:d.thumbnail_url||''}:null;
+        if(m && m.title && m.image){ finish(m); return; }
+        /* oEmbed blocked or thin — try Microlink, then keep whatever we got */
+        return viaMicrolink().then(function(mm){
+          finish({ title:(mm&&mm.title)||(m&&m.title)||'', image:(mm&&mm.image)||(m&&m.image)||'' });
+        });
+      });
+      return;
+    }
+    viaMicrolink().then(finish);
   }
 
   if(SHARED_DB){
