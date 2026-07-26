@@ -135,6 +135,11 @@
       flex:1 1 320px;min-width:0;padding:.8rem 1rem;border-radius:12px;border:1px solid var(--line);background:white;font-size:.95rem
     }
     .board-note{font-size:.8rem;color:var(--muted);margin:0 0 18px}
+    .board-status{font-size:.86rem;font-weight:700;margin:0 0 8px;min-height:1.1em}
+    .board-status.ok{color:#2c7a3f}
+    .board-status.err{color:var(--granada)}
+    .lcard.new{animation:flash 1.4s ease}
+    @keyframes flash{0%{box-shadow:0 0 0 3px rgba(44,122,63,.55)}100%{box-shadow:0 0 0 3px rgba(44,122,63,0)}}
     .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
     .lcard{display:flex;flex-direction:column;background:white;border:1px solid var(--line);border-radius:16px;overflow:hidden}
     .lthumb{height:150px;background:#e9e5db;position:relative;display:grid;place-items:center;overflow:hidden}
@@ -216,10 +221,11 @@
       </div>
       <div class="board" id="board-ideas">
         <form class="board-form" data-board="ideas">
-          <input type="url" name="url" placeholder="Paste a link (TikTok, Instagram, Google Maps…)" required />
-          <button class="btn primary" type="submit">Add idea</button>
+          <input type="text" inputmode="url" name="url" placeholder="Paste a link (TikTok, Instagram, Google Maps…)" autocomplete="off" />
+          <button class="btn primary" type="submit">Add &amp; save</button>
         </form>
-        <p class="board-note">Links show a picture or name automatically. Your additions and votes are saved in this browser on this device.</p>
+        <p class="board-status" data-status="ideas" aria-live="polite"></p>
+        <p class="board-note">Links show a picture or name automatically. Saved in this browser on this device.</p>
         <div class="cards" data-cards="ideas"></div>
       </div>
     </div>
@@ -381,10 +387,11 @@
       </div>
       <div class="board" id="board-food">
         <form class="board-form" data-board="food">
-          <input type="url" name="url" placeholder="Paste a restaurant link (TikTok, Google Maps…)" required />
-          <button class="btn primary" type="submit">Add restaurant</button>
+          <input type="text" inputmode="url" name="url" placeholder="Paste a restaurant link (TikTok, Google Maps…)" autocomplete="off" />
+          <button class="btn primary" type="submit">Add &amp; save</button>
         </form>
-        <p class="board-note">Links show a picture or name automatically. Your additions and votes are saved in this browser on this device.</p>
+        <p class="board-status" data-status="food" aria-live="polite"></p>
+        <p class="board-note">Links show a picture or name automatically. Saved in this browser on this device.</p>
         <div class="cards" data-cards="food"></div>
       </div>
 
@@ -479,32 +486,53 @@
   function load(key){ try{return JSON.parse(localStorage.getItem(key))||{};}catch(e){return {};} }
   function save(key,val){ localStorage.setItem(key,JSON.stringify(val)); }
 
+  /* Pull a usable URL out of whatever the user pasted (bare domain, or a link inside some text). */
+  function extractUrl(text){
+    if(!text) return '';
+    text=text.trim();
+    var m=text.match(/https?:\/\/[^\s]+/i);
+    if(m) return m[0].replace(/[)\]}.,]+$/,'');
+    var tok=text.split(/\s+/)[0];
+    if(/^[a-z0-9.-]+\.[a-z]{2,}(\/[^\s]*)?$/i.test(tok)) return 'https://'+tok;
+    return '';
+  }
+
   function Board(name){
     this.name=name;
     this.itemsKey='board-'+name+'-items';
     this.votesKey='board-'+name+'-votes';
     this.myKey='board-'+name+'-myvotes';
     this.cards=document.querySelector('[data-cards="'+name+'"]');
+    this.status=document.querySelector('[data-status="'+name+'"]');
+    this.flashId=null;
     var self=this;
     document.querySelector('form[data-board="'+name+'"]').addEventListener('submit',function(e){
       e.preventDefault();
       var input=this.querySelector('input[name=url]');
-      var url=input.value.trim();
-      if(!url) return;
-      if(!/^https?:\/\//i.test(url)) url='https://'+url;
-      self.add(url);
-      input.value='';
+      var url=extractUrl(input.value);
+      if(!url){ self.say('Please paste a link — it should contain something like tiktok.com or maps.app.goo.gl.', true); return; }
+      var res=self.add(url);
+      if(res==='dup'){ self.say('That link is already on the board.', true); }
+      else { input.value=''; self.say('Saved ✓ — it stays on this device.', false); }
     });
     this.render();
   }
+  Board.prototype.say=function(msg,isErr){
+    if(!this.status) return;
+    this.status.textContent=msg;
+    this.status.className='board-status '+(isErr?'err':'ok');
+  };
   Board.prototype.userItems=function(){ var o=load(this.itemsKey); return Array.isArray(o)?o:[]; };
   Board.prototype.allItems=function(){ return SEEDS[this.name].concat(this.userItems()); };
   Board.prototype.add=function(url){
     var items=this.userItems();
-    if(this.allItems().some(function(i){return i.url===url;})){ this.render(); return; }
-    items.push({id:'u-'+Date.now(),url:url});
+    if(this.allItems().some(function(i){return i.url===url;})){ return 'dup'; }
+    var id='u-'+Date.now();
+    items.push({id:id,url:url});
     save(this.itemsKey,items);
+    this.flashId=id;
     this.render();
+    return 'ok';
   };
   Board.prototype.remove=function(id){
     var items=this.userItems().filter(function(i){return i.id!==id;});
@@ -528,7 +556,7 @@
       var meta=classify(it.url);
       var isSeed=/^seed-/.test(it.id);
       var score=votes[it.id]||0, my=mine[it.id]||0;
-      var card=document.createElement('div'); card.className='lcard';
+      var card=document.createElement('div'); card.className='lcard'+(it.id===self.flashId?' new':'');
       card.innerHTML=
         '<div class="lthumb" style="background:'+meta.color+'14">'+
           '<span class="platform"><span>'+meta.glyph+'</span>'+meta.platform+'</span>'+
@@ -554,6 +582,7 @@
       self.cards.appendChild(card);
       enrich(it.url,card);
     });
+    self.flashId=null;
   };
 
   /* Try to pull a real thumbnail + title via oEmbed (TikTok / YouTube support CORS). */
