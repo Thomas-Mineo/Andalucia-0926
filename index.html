@@ -223,6 +223,7 @@
         <form class="board-form" data-board="ideas">
           <input type="text" inputmode="url" name="url" placeholder="Paste a link (TikTok, Instagram, Google Maps…)" autocomplete="off" />
           <button class="btn primary" type="submit">Add &amp; save</button>
+          <button class="btn" type="button" data-refresh title="Re-fetch titles and images for every link">↻ Refresh previews</button>
         </form>
         <p class="board-status" data-status="ideas" aria-live="polite"></p>
         <p class="board-note">Links show a picture or name automatically. Saved in this browser on this device.</p>
@@ -389,6 +390,7 @@
         <form class="board-form" data-board="food">
           <input type="text" inputmode="url" name="url" placeholder="Paste a restaurant link (TikTok, Google Maps…)" autocomplete="off" />
           <button class="btn primary" type="submit">Add &amp; save</button>
+          <button class="btn" type="button" data-refresh title="Re-fetch titles and images for every link">↻ Refresh previews</button>
         </form>
         <p class="board-status" data-status="food" aria-live="polite"></p>
         <p class="board-note">Links show a picture or name automatically. Saved in this browser on this device.</p>
@@ -572,8 +574,23 @@
       if(res==='dup'){ self.say('That link is already on the board.', true); }
       else { input.value=''; self.say(self.shared?'Saved ✓ — everyone can see it now.':'Saved ✓ — it stays on this device.', false); }
     });
+    var rb=document.querySelector('form[data-board="'+name+'"] [data-refresh]');
+    if(rb) rb.addEventListener('click',function(){ self.refreshPreviews(); });
     this.render();
   }
+  /* Wipe saved titles/images so every card re-fetches its preview. */
+  Board.prototype.refreshPreviews=function(){
+    save('board-meta-cache',{});
+    if(this.shared){
+      var o=this.dbItems||{}, ref=this.ref;
+      Object.keys(o).forEach(function(k){ try{ ref.child('items/'+k).update({title:null,image:null}); }catch(e){} });
+    }else{
+      var items=this.userItems().map(function(i){ return {id:i.id,url:i.url}; });
+      save(this.itemsKey,items);
+    }
+    this.say('Refreshing previews…', false);
+    this.render();
+  };
   Board.prototype.say=function(msg,isErr){
     if(!this.status) return;
     this.status.textContent=msg;
@@ -721,8 +738,37 @@
       .then(function(r){ clearTimeout(to); return r.ok?r.json():null; })
       .catch(function(){ clearTimeout(to); return null; });
   }
-  /* TikTok/YouTube expose their own oEmbed (better titles than a scraper);
-     everything else goes through Microlink for Open Graph data. */
+  /* TikTok's oEmbed rejects share links carrying tracking params (?_r=, ?_t=),
+     so reduce them to the canonical video URL first. */
+  function canonical(url){
+    var m=url.match(/tiktok\.com\/(@[\w.\-]+)\/video\/(\d+)/i);
+    if(m) return 'https://www.tiktok.com/'+m[1]+'/video/'+m[2];
+    return url;
+  }
+  /* Try endpoints in order until one yields usable JSON. The CORS-proxy entries
+     fetch server-side, which is how Notion sidesteps TikTok's origin checks. */
+  function firstJson(endpoints){
+    var i=0;
+    function next(){
+      if(i>=endpoints.length) return Promise.resolve(null);
+      return fetchJson(endpoints[i++],8000).then(function(j){
+        if(j && (j.title || j.thumbnail_url)) return j;
+        return next();
+      });
+    }
+    return next();
+  }
+  function oembedChain(url){
+    var target=null;
+    if(/tiktok\./i.test(url)) target='https://www.tiktok.com/oembed?url='+encodeURIComponent(canonical(url));
+    else if(/youtu/i.test(url)) target='https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(url);
+    if(!target) return null;
+    return [
+      target,
+      'https://api.allorigins.win/raw?url='+encodeURIComponent(target),
+      'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(target)
+    ];
+  }
   function enrich(url,card,board,item){
     var cache=metaCache(), hit=cache[url];
     if(hit){ applyMeta(card,hit); storeMeta(board,item,hit); return; }
@@ -739,17 +785,13 @@
         return {title:(j.data.title||'').slice(0,140), image:/^https?:\/\//i.test(img)?img:''};
       });
     }
-    var oembed=null;
-    if(/tiktok\./i.test(url)) oembed='https://www.tiktok.com/oembed?url='+encodeURIComponent(url);
-    else if(/youtu/i.test(url)) oembed='https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(url);
-
-    if(oembed){
-      fetchJson(oembed).then(function(d){
+    var chain=oembedChain(url);
+    if(chain){
+      firstJson(chain).then(function(d){
         var m=d?{title:(d.title||d.author_name||'').slice(0,140), image:d.thumbnail_url||''}:null;
         if(m && m.title && m.image){ finish(m); return; }
-        /* oEmbed blocked or thin — fill the gaps from Microlink, but keep the
-           oEmbed title: for TikTok that's the video caption, which is far more
-           useful than the generic "… on TikTok" page title. */
+        /* Fill gaps from Microlink but keep the oEmbed title: for TikTok that's
+           the video caption, far more useful than "… on TikTok". */
         return viaMicrolink().then(function(mm){
           finish({ title:(m&&m.title)||(mm&&mm.title)||'', image:(m&&m.image)||(mm&&mm.image)||'' });
         });
