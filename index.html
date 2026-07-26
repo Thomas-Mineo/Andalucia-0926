@@ -441,6 +441,39 @@
   <div class="wrap">Family travel guide · Granada &amp; Málaga · updated 26 July 2026. Route maps use OpenStreetMap. Added ideas and votes are stored in your own browser.</div>
 </footer>
 
+<!-- Firebase (shared saving). Safe to leave — the page falls back to per-device storage until a config is pasted below. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+<script>
+  /* ===========================================================
+     SHARED SAVING SETUP
+     Paste your Firebase web config between the { } below to turn on
+     shared saving for the whole family. Steps:
+       1. console.firebase.google.com → Add project (any name).
+       2. Build → Realtime Database → Create database → Start in test mode.
+       3. Project settings (gear) → Your apps → Web (</>) → register → copy the config.
+       4. Paste the values below, keeping the databaseURL line.
+     Until then the boards save per-device (as before).
+     =========================================================== */
+  var firebaseConfig = {
+    // apiKey: "",
+    // authDomain: "",
+    // databaseURL: "",
+    // projectId: "",
+    // storageBucket: "",
+    // messagingSenderId: "",
+    // appId: ""
+  };
+
+  var SHARED_DB = null;
+  try {
+    if (firebaseConfig && firebaseConfig.databaseURL && window.firebase) {
+      firebase.initializeApp(firebaseConfig);
+      SHARED_DB = firebase.database();
+    }
+  } catch (e) { SHARED_DB = null; }
+</script>
+
 <script>
   /* ---------- Itinerary filter ---------- */
   document.querySelectorAll('.filter').forEach(btn=>{
@@ -499,13 +532,23 @@
 
   function Board(name){
     this.name=name;
-    this.itemsKey='board-'+name+'-items';
-    this.votesKey='board-'+name+'-votes';
-    this.myKey='board-'+name+'-myvotes';
+    this.itemsKey='board-'+name+'-items';   // local-mode user items
+    this.votesKey='board-'+name+'-votes';   // local-mode vote totals
+    this.myKey='board-'+name+'-myvotes';    // always local: which way I voted
     this.cards=document.querySelector('[data-cards="'+name+'"]');
     this.status=document.querySelector('[data-status="'+name+'"]');
     this.flashId=null;
+    this.shared=!!SHARED_DB;
+    this.dbItems={};   // shared: {pushKey:{url,ts}}
+    this.dbVotes={};   // shared: {itemId:score}
     var self=this;
+
+    if(this.shared){
+      this.ref=SHARED_DB.ref('boards/'+name);
+      this.ref.child('items').on('value',function(s){ self.dbItems=s.val()||{}; self.render(); });
+      this.ref.child('votes').on('value',function(s){ self.dbVotes=s.val()||{}; self.render(); });
+    }
+
     document.querySelector('form[data-board="'+name+'"]').addEventListener('submit',function(e){
       e.preventDefault();
       var input=this.querySelector('input[name=url]');
@@ -513,7 +556,7 @@
       if(!url){ self.say('Please paste a link — it should contain something like tiktok.com or maps.app.goo.gl.', true); return; }
       var res=self.add(url);
       if(res==='dup'){ self.say('That link is already on the board.', true); }
-      else { input.value=''; self.say('Saved ✓ — it stays on this device.', false); }
+      else { input.value=''; self.say(self.shared?'Saved ✓ — everyone can see it now.':'Saved ✓ — it stays on this device.', false); }
     });
     this.render();
   }
@@ -522,11 +565,25 @@
     this.status.textContent=msg;
     this.status.className='board-status '+(isErr?'err':'ok');
   };
-  Board.prototype.userItems=function(){ var o=load(this.itemsKey); return Array.isArray(o)?o:[]; };
+  Board.prototype.userItems=function(){
+    if(this.shared){
+      var o=this.dbItems||{};
+      return Object.keys(o).map(function(k){return {id:k,url:o[k]&&o[k].url,ts:o[k]&&o[k].ts};})
+        .filter(function(i){return i.url;})
+        .sort(function(a,b){return (a.ts||0)-(b.ts||0);});
+    }
+    var l=load(this.itemsKey); return Array.isArray(l)?l:[];
+  };
   Board.prototype.allItems=function(){ return SEEDS[this.name].concat(this.userItems()); };
+  Board.prototype.votesMap=function(){ return this.shared?(this.dbVotes||{}):load(this.votesKey); };
   Board.prototype.add=function(url){
-    var items=this.userItems();
     if(this.allItems().some(function(i){return i.url===url;})){ return 'dup'; }
+    if(this.shared){
+      var r=this.ref.child('items').push({url:url, ts:Date.now()});
+      this.flashId=r.key;               // listener re-renders when the write lands
+      return 'ok';
+    }
+    var items=this.userItems();
     var id='u-'+Date.now();
     items.push({id:id,url:url});
     save(this.itemsKey,items);
@@ -535,20 +592,27 @@
     return 'ok';
   };
   Board.prototype.remove=function(id){
+    if(this.shared){ this.ref.child('items/'+id).remove(); return; }
     var items=this.userItems().filter(function(i){return i.id!==id;});
     save(this.itemsKey,items);
     this.render();
   };
   Board.prototype.vote=function(id,dir){
-    var votes=load(this.votesKey), mine=load(this.myKey);
+    var mine=load(this.myKey);
     var prev=mine[id]||0, next=(prev===dir)?0:dir;
+    mine[id]=next; save(this.myKey,mine);
+    if(this.shared){
+      this.ref.child('votes/'+id).transaction(function(cur){ return (cur||0)-prev+next; });
+      this.render();                    // reflect my highlight immediately; total syncs via listener
+      return;
+    }
+    var votes=load(this.votesKey);
     votes[id]=(votes[id]||0)-prev+next;
-    mine[id]=next;
-    save(this.votesKey,votes); save(this.myKey,mine);
+    save(this.votesKey,votes);
     this.render();
   };
   Board.prototype.render=function(){
-    var self=this, votes=load(this.votesKey), mine=load(this.myKey);
+    var self=this, votes=this.votesMap(), mine=load(this.myKey);
     var items=this.allItems().slice().sort(function(a,b){return (votes[b.id]||0)-(votes[a.id]||0);});
     this.cards.innerHTML='';
     if(!items.length){ this.cards.innerHTML='<div class="empty">No links yet — add the first one above.</div>'; return; }
@@ -606,6 +670,12 @@
         thumb.appendChild(img);
       }
     }).catch(function(){ clearTimeout(to); });
+  }
+
+  if(SHARED_DB){
+    document.querySelectorAll('.board-note').forEach(function(n){
+      n.textContent='Links show a picture or name automatically. Saved for everyone — updates live across devices.';
+    });
   }
 
   new Board('ideas');
