@@ -670,23 +670,34 @@
   };
 
   /* ---------- Link preview (title + image) ---------- */
-  /* Add a thumbnail without destroying the fallback glyph: the image is only
-     revealed once it actually loads, so hotlink-blocked hosts (TikTok, Instagram)
-     keep showing their platform icon instead of an empty grey box. */
+  /* TikTok/Instagram CDNs refuse images requested from another site (hotlink
+     protection). Notion dodges this by fetching server-side; we get the same
+     result by falling back to an image proxy that fetches on its own server. */
+  function proxied(src){
+    return 'https://wsrv.nl/?url='+encodeURIComponent(src.replace(/^https?:\/\//,''))+'&w=600&output=jpg&l=6';
+  }
+  /* The image is only revealed once it actually decodes, so a blocked host keeps
+     showing its platform icon instead of an empty grey box. */
   function setThumb(card,src,alt){
     if(!/^https?:\/\//i.test(src)) return;
     var thumb=card.querySelector('.lthumb'); if(!thumb) return;
     if(thumb.querySelector('img')) return;
     var img=document.createElement('img');
-    img.loading='lazy'; img.alt=alt||'preview';
-    img.referrerPolicy='no-referrer';          // many CDNs allow the fetch without a referer
-    img.style.display='none';
+    img.alt=alt||'preview';
+    img.referrerPolicy='no-referrer';          // enough for some CDNs on its own
+    /* Stay rendered but transparent: display:none combined with lazy loading
+       stops the browser fetching the image at all. Fade in once it decodes. */
+    img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .25s';
+    var triedProxy=false;
     img.onload=function(){
-      if(!img.naturalWidth) return;            // treat 0-size as a failure
-      img.style.display='';
+      if(!img.naturalWidth){ img.onerror(); return; }   // 0-size == failure
+      img.style.opacity='1';
       var g=card.querySelector('[data-glyph]'); if(g) g.remove();
     };
-    img.onerror=function(){ img.remove(); };   // glyph stays put
+    img.onerror=function(){
+      if(!triedProxy){ triedProxy=true; img.src=proxied(src); return; }
+      img.remove();                            // give up; glyph stays put
+    };
     img.src=src;
     thumb.appendChild(img);
   }
@@ -736,9 +747,11 @@
       fetchJson(oembed).then(function(d){
         var m=d?{title:(d.title||d.author_name||'').slice(0,140), image:d.thumbnail_url||''}:null;
         if(m && m.title && m.image){ finish(m); return; }
-        /* oEmbed blocked or thin — try Microlink, then keep whatever we got */
+        /* oEmbed blocked or thin — fill the gaps from Microlink, but keep the
+           oEmbed title: for TikTok that's the video caption, which is far more
+           useful than the generic "… on TikTok" page title. */
         return viaMicrolink().then(function(mm){
-          finish({ title:(mm&&mm.title)||(m&&m.title)||'', image:(mm&&mm.image)||(m&&m.image)||'' });
+          finish({ title:(m&&m.title)||(mm&&mm.title)||'', image:(m&&m.image)||(mm&&mm.image)||'' });
         });
       });
       return;
