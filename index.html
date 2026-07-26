@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="A visual five-day family itinerary for Granada and Málaga: sights, food, route maps, walking routes and booking information." />
   <title>Granada + Málaga — 5-Day Family Guide</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🏰%3C/text%3E%3C/svg%3E" />
   <style>
     :root{
       --ink:#16201d;
@@ -694,10 +695,19 @@
   function proxied(src){
     return 'https://wsrv.nl/?url='+encodeURIComponent(src.replace(/^https?:\/\//,''))+'&w=600&output=jpg&l=6';
   }
+  /* A site icon is not a preview picture — showing one just renders the TikTok
+     logo. Reject favicons and other tiny brand assets. */
+  function isIconUrl(src){ return /favicon|\/apple-touch-icon|sprite|logo\.(png|svg|ico)(\?|$)/i.test(src); }
+  /* Browser tracking prevention (Edge/Firefox strict) blocks requests to social
+     domains outright, so fetch those thumbnails via the proxy first rather than
+     hitting the CDN directly and failing. */
+  function needsProxyFirst(src){
+    return /tiktok|tiktokcdn|cdninstagram|instagram\.com|fbcdn|scontent|facebook\.com/i.test(src);
+  }
   /* The image is only revealed once it actually decodes, so a blocked host keeps
      showing its platform icon instead of an empty grey box. */
   function setThumb(card,src,alt){
-    if(!/^https?:\/\//i.test(src)) return;
+    if(!/^https?:\/\//i.test(src) || isIconUrl(src)) return;
     var thumb=card.querySelector('.lthumb'); if(!thumb) return;
     if(thumb.querySelector('img')) return;
     var img=document.createElement('img');
@@ -706,17 +716,18 @@
     /* Stay rendered but transparent: display:none combined with lazy loading
        stops the browser fetching the image at all. Fade in once it decodes. */
     img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .25s';
-    var triedProxy=false;
+    var sources = needsProxyFirst(src) ? [proxied(src), src] : [src, proxied(src)];
+    var at=0;
     img.onload=function(){
       if(!img.naturalWidth){ img.onerror(); return; }   // 0-size == failure
       img.style.opacity='1';
       var g=card.querySelector('[data-glyph]'); if(g) g.remove();
     };
     img.onerror=function(){
-      if(!triedProxy){ triedProxy=true; img.src=proxied(src); return; }
+      if(at<sources.length){ img.src=sources[at++]; return; }
       img.remove();                            // give up; glyph stays put
     };
-    img.src=src;
+    img.src=sources[at++];
     thumb.appendChild(img);
   }
   function metaCache(){ return load('board-meta-cache'); }
@@ -821,8 +832,10 @@
     function viaMicrolink(target){
       return fetchJson('https://api.microlink.io/?url='+encodeURIComponent(target)).then(function(j){
         if(!j||j.status!=='success'||!j.data) return null;
-        var img=(j.data.image&&j.data.image.url)||(j.data.logo&&j.data.logo.url)||'';
-        var m={title:(j.data.title||'').slice(0,140), image:/^https?:\/\//i.test(img)?img:''};
+        /* Only a real preview picture — never data.logo, which is the favicon. */
+        var img=(j.data.image&&j.data.image.url)||'';
+        if(!/^https?:\/\//i.test(img) || isIconUrl(img)) img='';
+        var m={title:(j.data.title||'').slice(0,140), image:img};
         return isGeneric(m)?null:m;                 // don't accept TikTok boilerplate
       });
     }
