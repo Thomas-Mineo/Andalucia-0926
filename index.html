@@ -581,6 +581,7 @@
   /* Wipe saved titles/images so every card re-fetches its preview. */
   Board.prototype.refreshPreviews=function(){
     save('board-meta-cache',{});
+    TRIED={};                                       // allow lookups to run again
     if(this.shared){
       var o=this.dbItems||{}, ref=this.ref;
       Object.keys(o).forEach(function(k){ try{ ref.child('items/'+k).update({title:null,image:null}); }catch(e){} });
@@ -738,6 +739,40 @@
       .then(function(r){ clearTimeout(to); return r.ok?r.json():null; })
       .catch(function(){ clearTimeout(to); return null; });
   }
+  function fetchText(endpoint,ms){
+    var ctrl=new AbortController(), to=setTimeout(function(){ctrl.abort();},ms||9000);
+    return fetch(endpoint,{signal:ctrl.signal})
+      .then(function(r){ clearTimeout(to); return r.ok?r.text():null; })
+      .catch(function(){ clearTimeout(to); return null; });
+  }
+  /* TikTok's generic homepage metadata means the real video was never reached. */
+  function isGeneric(m){
+    if(!m||!m.title) return false;
+    return /^tiktok\s*[-–|]\s*make your day/i.test(m.title) ||
+           /^(tiktok|instagram|facebook)$/i.test(m.title.trim());
+  }
+  function isShortTikTok(url){ return /(vm|vt)\.tiktok\.com/i.test(url) || /tiktok\.com\/t\//i.test(url); }
+  /* Short share links (vm.tiktok.com/…) are redirects. A browser can't read the
+     redirect target cross-origin, so fetch it through a proxy server-side and
+     pull the canonical /@user/video/<id> out of the response. */
+  function resolveShort(url){
+    var eps=[
+      'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(url),
+      'https://api.allorigins.win/raw?url='+encodeURIComponent(url)
+    ];
+    var i=0;
+    function next(){
+      if(i>=eps.length) return Promise.resolve(null);
+      return fetchText(eps[i++],9000).then(function(body){
+        if(body){
+          var m=body.match(/tiktok\.com\/(@[\w.\-]+)\/video\/(\d+)/i);
+          if(m) return 'https://www.tiktok.com/'+m[1]+'/video/'+m[2];
+        }
+        return next();
+      });
+    }
+    return next();
+  }
   /* TikTok's oEmbed rejects share links carrying tracking params (?_r=, ?_t=),
      so reduce them to the canonical video URL first. */
   function canonical(url){
@@ -758,47 +793,56 @@
     }
     return next();
   }
-  function oembedChain(url){
-    var target=null;
-    if(/tiktok\./i.test(url)) target='https://www.tiktok.com/oembed?url='+encodeURIComponent(canonical(url));
-    else if(/youtu/i.test(url)) target='https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(url);
-    if(!target) return null;
+  function oembedChain(target){
+    var ep=null;
+    if(/tiktok\./i.test(target)) ep='https://www.tiktok.com/oembed?url='+encodeURIComponent(target);
+    else if(/youtu/i.test(target)) ep='https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(target);
+    if(!ep) return null;
     return [
-      target,
-      'https://api.allorigins.win/raw?url='+encodeURIComponent(target),
-      'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(target)
+      ep,
+      'https://api.allorigins.win/raw?url='+encodeURIComponent(ep),
+      'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(ep)
     ];
   }
+  var TRIED={};                                    // one lookup per link per page load
   function enrich(url,card,board,item){
     var cache=metaCache(), hit=cache[url];
     if(hit){ applyMeta(card,hit); storeMeta(board,item,hit); return; }
+    if(TRIED[url]) return;                          // renders repeat on every vote/sync
+    TRIED[url]=1;
 
     function finish(m){
       if(!m || (!m.title && !m.image)) return;
+      if(isGeneric(m)) m={title:'', image:m.image&&!/make your day/i.test(m.title)?m.image:''};
+      if(!m.title && !m.image) return;              // nothing real found; keep glyph + slug name
       cache[url]=m; save('board-meta-cache',cache);
       applyMeta(card,m); storeMeta(board,item,m);
     }
-    function viaMicrolink(){
-      return fetchJson('https://api.microlink.io/?url='+encodeURIComponent(url)).then(function(j){
+    function viaMicrolink(target){
+      return fetchJson('https://api.microlink.io/?url='+encodeURIComponent(target)).then(function(j){
         if(!j||j.status!=='success'||!j.data) return null;
         var img=(j.data.image&&j.data.image.url)||(j.data.logo&&j.data.logo.url)||'';
-        return {title:(j.data.title||'').slice(0,140), image:/^https?:\/\//i.test(img)?img:''};
+        var m={title:(j.data.title||'').slice(0,140), image:/^https?:\/\//i.test(img)?img:''};
+        return isGeneric(m)?null:m;                 // don't accept TikTok boilerplate
       });
     }
-    var chain=oembedChain(url);
-    if(chain){
-      firstJson(chain).then(function(d){
-        var m=d?{title:(d.title||d.author_name||'').slice(0,140), image:d.thumbnail_url||''}:null;
-        if(m && m.title && m.image){ finish(m); return; }
-        /* Fill gaps from Microlink but keep the oEmbed title: for TikTok that's
-           the video caption, far more useful than "… on TikTok". */
-        return viaMicrolink().then(function(mm){
-          finish({ title:(m&&m.title)||(mm&&mm.title)||'', image:(m&&m.image)||(mm&&mm.image)||'' });
+    /* Resolve short share links to the real video URL before asking for previews. */
+    var pre = isShortTikTok(url) ? resolveShort(url) : Promise.resolve(null);
+    pre.then(function(resolved){
+      var target=resolved||canonical(url);
+      var chain=oembedChain(target);
+      if(chain){
+        firstJson(chain).then(function(d){
+          var m=d?{title:(d.title||d.author_name||'').slice(0,140), image:d.thumbnail_url||''}:null;
+          if(m && !isGeneric(m) && m.title && m.image){ finish(m); return; }
+          return viaMicrolink(target).then(function(mm){
+            finish({ title:(m&&!isGeneric(m)&&m.title)||(mm&&mm.title)||'', image:(m&&m.image)||(mm&&mm.image)||'' });
+          });
         });
-      });
-      return;
-    }
-    viaMicrolink().then(finish);
+        return;
+      }
+      viaMicrolink(target).then(finish);
+    });
   }
 
   if(SHARED_DB){
